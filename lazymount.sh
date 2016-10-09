@@ -9,7 +9,7 @@
 # 6) Avoid giving in to Windows
 
 if [ ! -f "$1" ]; then
-  echo 'linuxMountAssist.sh <image file>'
+  echo '$0 <image file>'
   exit 1
 fi
 file=$1
