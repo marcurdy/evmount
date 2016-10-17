@@ -28,6 +28,7 @@ function randomdir {
 function checkmount {
 
   #Check if a file and optional offset are already mounted
+  #Fuse FS don't readily expose their underlying disk+offset. Disabled for FUSE mounts.
   LOCHECK=`losetup -a | grep -F "$1" | grep -F "$2"`
   if [ -z "$LOCHECK" ]; then
     echo 0
@@ -67,8 +68,8 @@ echo "Analyzing $file of type: \"$FILETYPE\""
 if [ "$FILETYPE" == "ASCII text" ] || [ "$FILETYPE" == "VMware4 disk image" ] || [ "$FILETYPE" == "VMWare3" ]; then 
   VMTYPE=`vmdkinfo $file 2>/dev/null | grep 'Disk type:' | awk -F: '{ print $2 }'`
   if [ -z "$VMTYPE" ]; then
-    echo "ERROR: Your VMDK was not detected"
-    echo "ERROR: Troubleshoot: Point to ascii vmdk instead. Check vmdk integrity"
+    echo "ERROR: Your VMDK is invalid"
+    echo "ERROR: Tips: Reference the parent vmdk. Check vmdk integrity/md5"
     exit 0
   elif [ -n "`echo $VMTYPE | egrep -i 'sparse|flat|raw'`" ]; then
     name=`randomdir`
@@ -152,4 +153,7 @@ elif [ -n "`echo \"$FILETYPE\" | grep LVM2`" ]; then
   echo "  mount root before any mounts in a root subdirectory. See root's etc/fstab for LVM mapping"
   echo "  Use fls -rupF /device/name to look within without first mounting"
   exit 0
+else
+  echo "You specified an unsupported image"
+  exit 1
 fi
