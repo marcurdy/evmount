@@ -19,83 +19,137 @@ if [ -z "`echo $file | grep -i vmdk `" ]; then
   exit 1
 fi
 
+function randomdir {
+
+  #Create a random mount name to avoid conflicts due to common names of devices
+  cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1 | sed 's?^?LM?'
+}
+
+function checkmount {
+
+  #Check if a file and optional offset are already mounted
+  LOCHECK=`losetup -a | grep -F "$1" | grep -F "$2"`
+  if [ -z "$LOCHECK" ]; then
+    echo 0
+  else
+    echo 1
+  fi
+}
+
 HALT=0
 # Check OS prerequisites
 vdiskmgr=`which vmware-vdiskmanager`
 if [ -z "$vdiskmgr" ]; then
-  echo "#INFO# vmware-vdiskmanager is missing. Install VMware-vix-disklib if vmdk is incompat with libvmdk"
+  echo "WARNING: vmware-vdiskmanager is missing. Install VMware-vix-disklib if vmdk is incompat with libvmdk"
 fi
 
 libvmdk=`which vmdkinfo`
 if [ -z "$libvmdk" ]; then
-  echo "#ERROR# libvmdk must be installed with vmdkinfo and vmdkmount in your path."
+  echo "ERROR: libvmdk must be installed with vmdkinfo and vmdkmount in your path."
   HALT=1
 fi
 gentools=`which kpartx xmount losetup | wc -l`
 if [ "$gentools" -lt 3 ]; then
-  echo "#ERROR# Please install kpartx, xmount, and losetup"
+  echo "ERROR: Please install kpartx, xmount, and losetup"
   HALT=1
 fi
 if [ $HALT == 1 ]; then
   exit 1
 fi
 
+
+# Clean up any past created mount points that aren't in use
+rmdir /media/LM*
+
 FILETYPE=`file $file | awk -F: '{ print $2 }' | sed 's?^ ??'`
-echo ""
-echo "#INFO# Analyzing $file of type: \"$FILETYPE\""
+echo "Analyzing $file of type: \"$FILETYPE\""
 
 if [ "$FILETYPE" == "ASCII text" ] || [ "$FILETYPE" == "VMware4 disk image" ] || [ "$FILETYPE" == "VMWare3" ]; then 
-  VMTYPE=`vmdkinfo $file | grep 'Disk type:' | awk -F: '{ print $2 }'`
+  VMTYPE=`vmdkinfo $file 2>/dev/null | grep 'Disk type:' | awk -F: '{ print $2 }'`
   if [ -z "$VMTYPE" ]; then
-    echo "#INFO# Your VMDK was not detected. Check input file integrity"
+    echo "ERROR: Your VMDK was not detected"
+    echo "ERROR: Troubleshoot: Point to ascii vmdk instead. Check vmdk integrity"
     exit 0
   elif [ -n "`echo $VMTYPE | egrep -i 'sparse|flat|raw'`" ]; then
-    echo "#RUN# mkdir -p /media/${name}"
-    echo "#RUN# mkdir -p /media/${name}_data"
-    echo "#RUN# vmdkmount $file /media/${name}"
-    echo "#RUN# $0 /media/${name}_data/*"
+    name=`randomdir`
+    mkdir -p /media/${name}
+    echo "Mounting $file as /media/${name}"
+    vmdkmount $file /media/${name} > /dev/null 2>/dev/null
+    if [ $? == 1 ]; then
+      echo "ERROR: vmdkmount failed mounting $file"
+      exit 1
+    fi
+    $0 /media/${name}/*
+    exit 0
   else
-    echo "#INFO# Your image is not compatible with libvmdk and must be converted"
+    echo "ERROR: Your image is not compatible with libvmdk and must be converted"
     filebase=`echo $file | rev | cut -d'.' -f2- | rev`
-    echo "#RUN# vmware-vdiskmanager -r $file -t 0 ${filebase}-converted.vmdk"
-    echo "#INFO# Rerun $0 with ${filebase}-converted.vmdk"
+    echo "RUN: vmware-vdiskmanager -r $file -t 0 ${filebase}-converted.vmdk"
+    echo "RUN: $0 ${filebase}-converted.vmdk"
   fi
 # An LVM2 partition is a subset of x86 boot sector, and i don't want to reuse code
-elif [ "$FILETYPE" == "x86 boot sector" ] || [ "$FILETYPE" == "LVM2" ]; then
-  LVMS=$file
-  if [ "$FILETYPE" == "x86 boot sector" ]; then
-    LVMS=`mmls -Ma $file | grep 'Linux Logical'`
-  fi
-    echo $LVMS | while read FS; do
-    echo "#INFO# Found partition of type Linux Logic Volume"
+elif [ "$FILETYPE" == "x86 boot sector" ]; then
+
+  mmls -Ma $file | grep 'Linux Logical' | while read FS; do
+    echo "Found partition of type Linux Logical Volume"
     OFFSET=$((`echo $FS | awk '{ print $3 }' | sed 's?^0*??'`*512))
-    echo "#RUN# losetup -j -o $OFFSET $file | tail -1"
-    echo "#RUN# lvs"
-    echo "#RUN# mkdir -p /media/${name}"
-    echo "#MANUAL# Mount root as /media/${name} from the lvs output"
-    echo "#RUN# awk '{ print \"mount -t \" \$3 \" \" \$1 \" \" \$2 }' /media/${name}/etc/fstab"
+    if [ -n "$OFFSET" ]; then
+      #checkmount $file $OFFSET
+      #if [ `checkmount $file $OFFSET` == 1 ]; then
+      #  echo "WARNING: Logical Volume already mounted"
+      #else
+        losetup -f $file -o $OFFSET
+      #fi
+      LB=`losetup -j $file -o $OFFSET | tail -1 | awk -F: '{ print $1 }'`
+      VG=`pvs | grep $LB | awk '{ print $2 }'`
+      vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }'
+      echo "NOTE: Mount these logical volumes manually. If the root FS is included, mount"
+      echo "  root before any mounts in its subdirectory. See root's etc/fstab for LVM mapping."
+      echo "  Use fls -rupF /device/name to look within without first mounting"
+    else
+      echo "ERROR: Failed to identify offset for Linux Logical partition. Skipping."
+    fi
   done
-  mmls -Ma $file | grep 'Linux' | grep -v Logical | while read FS; do
-    echo "#INFO# Found partition of type Linux Native"
+  mmls -Ma $file | grep 'Linux (' | while read FS; do
+    echo "Found partition of type Linux Native"
+    name=`randomdir`
     OFFSET=$((`echo $FS | awk '{ print $3 }' | sed 's?^0*??'`*512))
-    echo "#RUN# mkdir -p /media/${name}"
-    echo "#RUN# mount -o offset=$OFFSET $file /media/${name}/boot"
-    echo "#RUN# cat /media/${name}/etc/fstab"
+    if [ `checkmount $file $OFFSET` == 1 ]; then
+      echo "WARNING: Linux FS already mounted"
+    else
+      mkdir -p /media/${name}
+      echo "Mounting Linux partition $file offset $OFFSET as /media/${name}"
+      mount -o offset=$OFFSET $file /media/${name}
+    fi
   done
   mmls -Ma $file | grep 'NTFS ' | while read FS; do
-    echo "#INFO# Found partition of type NTFS"
+    echo "Found partition of type NTFS"
+    name=`randomdir`
     OFFSET=$((`echo $FS | awk '{ print $3 }' | sed 's?^0*??'`*512))
-    echo "#RUN# mkdir -p /media/${name}"
-    echo "#RUN# mount -o ro,show_sys_files,streams_interface=windows,offset=$OFFSET $file /media/${name}"
+    if [ `checkmount $file $OFFSET` == 1 ]; then
+      echo "WARNING: NTFS volume already mounted"
+    else
+      mkdir -p /media/${name}
+      echo "Mounting NTFS FS as /media/${name}"
+      mount -o ro,show_sys_files,streams_interface=windows,offset=$OFFSET $file /media/${name}
+    fi
   done
-elif [ "$FILETYPE" == "LVM2" ]; then
-  echo "#RUN# losetup -f $file"
-  MEMVG="`vgs | tail -n +2  | awk '{ print $1 }' | tr '\n' ','`"
-  echo "#INFO# Found these Volume Groups before losetup: $MEMVG"
-  echo "#MANUAL# mount these logical volumes manually"
-  echo "#RUN# vgs | tail -n +2  | awk '{ print \$1 }' | while read VG; do"
-  echo "#RUN#   if [ -z \"\`echo \$MEMVG | grep \\\",\$VG,\\\"\`\" ]; then"
-  echo "#MANUAL# Mount all the LVs from Volume Group \$VG"
-  echo "#RUN#   fi"
-  echo "#RUN# done"
+elif [ -n "`echo \"$FILETYPE\" | grep LVM2`" ]; then
+  #if [ `checkmount $file` == 1 ]; then
+  #  echo "WARNING: Logical Volume already mounted"
+  #else
+    losetup -f $file >/dev/null 2>&1
+    if [ $? == 1 ]; then
+      echo "ERROR: losetup of LVM2 device $file has failed"
+      exit 1
+    fi
+  #fi
+  echo "Listing logical volumes underneath this LVM device"
+  LB=`losetup -j $file | awk -F: '{ print $1 }'`
+  VG=`pvs | grep $LB | awk '{ print $2 }'`
+  vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }'
+  echo "NOTE: Mount these logical volumes manually. If the root FS is included,"
+  echo "  mount root before any mounts in a root subdirectory. See root's etc/fstab for LVM mapping"
+  echo "  Use fls -rupF /device/name to look within without first mounting"
+  exit 0
 fi
