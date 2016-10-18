@@ -13,11 +13,6 @@ if [ ! -f "$1" ]; then
   exit 1
 fi
 file=$1
-name=`basename $file | awk -F\. '{ print $1 }'`
-if [ -z "`echo $file | grep -i vmdk `" ]; then
-  echo "Only supporting VMDK\'s now"
-  exit 1
-fi
 
 function randomdir {
 
@@ -60,7 +55,7 @@ fi
 
 
 # Clean up any past created mount points that aren't in use
-rmdir /media/LM*
+rmdir /media/LM* >/dev/null 2>&1
 
 FILETYPE=`file $file | awk -F: '{ print $2 }' | sed 's?^ ??'`
 echo "Analyzing $file of type: \"$FILETYPE\""
@@ -99,14 +94,18 @@ elif [ "$FILETYPE" == "x86 boot sector" ]; then
       #if [ `checkmount $file $OFFSET` == 1 ]; then
       #  echo "WARNING: Logical Volume already mounted"
       #else
-        losetup -f $file -o $OFFSET
+      losetup -f $file -o $OFFSET
       #fi
       LB=`losetup -j $file -o $OFFSET | tail -1 | awk -F: '{ print $1 }'`
       VG=`pvs | grep $LB | awk '{ print $2 }'`
-      vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }'
-      echo "NOTE: Mount these logical volumes manually. If the root FS is included, mount"
-      echo "  root before any mounts in its subdirectory. See root's etc/fstab for LVM mapping."
-      echo "  Use fls -rupF /device/name to look within without first mounting"
+      if [ -n "$VG" ]; then
+        echo "NOTE: Mount these logical volumes manually. If the root FS is included, mount"
+        echo "  root before any mounts in its subdirectory. See root's etc/fstab for LVM mapping."
+        echo "  Use fls -rupF /device/name to look within without first mounting"
+        vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }' | sed 's?^?  mount ?g' | sed 's?$? /media/ROOT/SUBDIR?g'
+      else
+        echo "ERROR: Failed mounting the Linux Logical Volume"
+      fi
     else
       echo "ERROR: Failed to identify offset for Linux Logical partition. Skipping."
     fi
@@ -148,11 +147,14 @@ elif [ -n "`echo \"$FILETYPE\" | grep LVM2`" ]; then
   echo "Listing logical volumes underneath this LVM device"
   LB=`losetup -j $file | awk -F: '{ print $1 }'`
   VG=`pvs | grep $LB | awk '{ print $2 }'`
-  vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }'
-  echo "NOTE: Mount these logical volumes manually. If the root FS is included,"
-  echo "  mount root before any mounts in a root subdirectory. See root's etc/fstab for LVM mapping"
-  echo "  Use fls -rupF /device/name to look within without first mounting"
-  exit 0
+  if [ -n "$VG" ]; then
+    echo "NOTE: Mount these logical volumes manually. If the root FS is included,"
+    echo "  mount root before any mounts in a root subdirectory. See root's etc/fstab for LVM mapping"
+    echo "  Use fls -rupF /device/name to look within without first mounting"
+    vgdisplay -v $VG 2>/dev/null | grep 'LV Path' | awk '{ print $3 }' | sed 's?^?  mount ?g' | sed 's?$? /media/ROOT/SUBDIR?g'
+  else
+    echo "ERROR: Failed mounting the Linux Logical Volume"
+  fi
 else
   echo "You specified an unsupported image"
   exit 1
