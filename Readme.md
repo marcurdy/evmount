@@ -13,7 +13,7 @@ This requires the reinstallation of libewf-tools, libvmdk, and losetup.  If your
   
 Run this with the expected DEVICE and optional MOUNTPOINT and sit back.  
   
-evmount [-u] <DEVICE_OR_FILE> [MOUNT_POINT]  
+evmount [-u] \<DEVICE_OR_FILE> [MOUNT_POINT]  
   
 Unmounting is not automatic.  The steps to unmount are given if the -u argument is given.  
   
