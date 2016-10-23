@@ -18,6 +18,7 @@ if [ "$1" == "-u" ]; then
 fi
 
 if [ ! -f "$1" ]; then
+  echo 'Evidence Mounter'
   echo '$0 <image file> [mount directory]'
   echo '$0 -u[nmount all]'
   exit 1
