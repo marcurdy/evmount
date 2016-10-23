@@ -1,19 +1,19 @@
 #!/bin/bash
 # There is a huge learning curve to mounting VMDK's in Linux.  This aids that.
 #
-# 1) Detect the VMDK container type
-# 2) Recommend a conversion of vmdk type if necessary
-# 3) Mount the container to expose the FS if necessary
-# 4) Detect a volume manager
-# 5) Mount the raw FS
-# 6) Avoid giving in to Windows
+# 1) If VMDK, detect the VMDK container type and request a conversion if necessary
+# 2) Mount the E01/VMDK container to expose the FS's
+# 3) Detect a logical volume manager
+# 4) Mount the raw FS
+# 5) Avoid giving in to Windows
 
 if [ "$1" == "-u" ]; then
-  echo "1. Unmounting is complicated.  Follow these steps"
-  echo "2. Unmount all raw partitions seen in \"mount\" output: umount /xxx/yyy"
-  echo "3. Deactivate the VG: vgchange -a n VGNAME"
-  echo "4. Remove loopback devices seen in \"losetup\" -a output: losetup -d /dev/loopX"
-  echo "5. Run mount to check for remaining mounts"
+  echo "Unmounting is complicated and can affect multiple mounted images.  Follow these steps"
+  echo "1. Unmount all file partitions seen in \"mount\" output: umount /xxx/yyy"
+  echo "2. Deactivate the VG if appl: vgchange -a n VGNAME"
+  echo "3. Remove loopback devices seen in \"losetup\" -a output: losetup -d /dev/loopX"
+  echo "4. Unmount any containers under /media: umount /media/*"
+  echo "5. Optionally remove the empty mount directories"
   exit 0
 fi
 
@@ -23,8 +23,8 @@ if [ ! -f "$1" ]; then
   exit 1
 fi
 
-file=$1
-mountdir=`echo $2 | sed 's?\/$??g'`
+file="$1"
+mountdir=`echo "$2" | sed 's?\/$??g'`
 
 if [ -n "$mountdir" ] && [ -a $mountdir ] && ([ ! -d $mountdir ] || [ -n "`mount | awk '{ print $3 }' | $mountdir`" ]); then
   echo "Error: Preexisting mount directory is not a dir or already contains a mounted object."
@@ -93,9 +93,9 @@ if [ -z "$libvmdk" ]; then
   echo "ERROR: libvmdk must be installed with vmdkinfo and vmdkmount in your path."
   HALT=1
 fi
-gentools=`which kpartx xmount losetup | wc -l`
-if [ "$gentools" -lt 3 ]; then
-  echo "ERROR: Please install kpartx, xmount, and losetup"
+gentools=`which ewfmount losetup | wc -l`
+if [ "$gentools" -lt 2 ]; then
+  echo "ERROR: Please install ewfmount and losetup"
   HALT=1
 fi
 if [ $HALT == 1 ]; then
@@ -173,12 +173,23 @@ elif [ "$FILETYPE" == "x86 boot sector" ]; then
       fi
       mkdir -p $mt
       echo "Mounting NTFS FS as $mt"
-      mount -o ro,show_sys_files,streams_interface=windows,offset=$OFFSET $file $mt
+      mount -t ntfs -o ro,show_sys_files,streams_interface=windows,offset=$OFFSET $file $mt
     fi
   done
 elif [ -n "`echo \"$FILETYPE\" | grep LVM2`" ]; then
   echo "Found partition of type LVM2"
   lvmprocess $file 0
+elif [ -n "`echo "$file" | grep -i e01 2>/dev/null`" ]; then
+  e01mt=/media/`randomdir`
+  cachefile=/tmp/LM`randomdir`
+  mkdir -p $e01mt
+  echo "Mounting $file as $e01mt to expose raw ewf1 device"
+  ewfmount $file $e01mt
+  if [ $? == 1 ]; then
+    echo "ERROR: xmount of e01 device $file has failed"
+    exit 1
+  fi
+  $0 $e01mt/ewf1 $mountdir
 else
   echo "You specified an unsupported image"
   exit 1
