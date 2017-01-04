@@ -125,7 +125,9 @@ if [ "$FILETYPE" == "ASCII text" ] || [ "$FILETYPE" == "VMware4 disk image" ] ||
       echo "ERROR: vmdkmount failed mounting $file"
       exit 1
     fi
-    $0 $vmdkmt/* $mountdir
+    ls $vmdkmt/* | while read m; do
+      $0 $m $mountdir
+    done
     exit 0
   else
     echo "ERROR: Your image is not compatible with libvmdk and must be converted"
