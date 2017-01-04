@@ -77,7 +77,7 @@ function lvmprocess {
       LVMT=$mt/`randomdir`
       mkdir -p $LVMT
       echo "Automounting logical volume $LV as $LVMT"
-      mount $LV $LVMT
+      mount -o ro,noload $LV $LVMT
     done
   fi
 }
@@ -158,7 +158,7 @@ elif [ "$FILETYPE" == "x86 boot sector" ]; then
       fi
       mkdir -p $mt
       echo "Mounting Linux partition $file offset $OFFSET as $mt"
-      mount -o offset=$OFFSET $file $mt
+      mount -o ro,noload,offset=$OFFSET $file $mt
     fi
   done
   mmls -Ma $file | grep 'NTFS ' | while read FS; do
