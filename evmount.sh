@@ -96,7 +96,7 @@ if [ -z "$libvmdk" ]; then
 fi
 gentools=`which ewfmount losetup | wc -l`
 if [ "$gentools" -lt 2 ]; then
-  echo "ERROR: Please install ewfmount and losetup"
+  echo "ERROR: Please install libewf-tools and ensure losetup is available"
   HALT=1
 fi
 if [ $HALT == 1 ]; then
