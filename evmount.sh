@@ -10,10 +10,10 @@
 if [ "$1" == "-u" ]; then
   echo "Unmounting is complicated and can affect multiple mounted images.  Follow these steps"
   echo "1. Unmount all file partitions seen in \"mount\" output: umount /xxx/yyy"
-  echo "2. Deactivate the VG if appl: vgchange -a n VGNAME"
+  echo "2. Deactivate the LVM volume group if appl: vgchange -a n VGNAME"
   echo "3. Remove loopback devices seen in \"losetup\" -a output: losetup -d /dev/loopX"
-  echo "4. Unmount any containers under /media: umount /media/*"
-  echo "5. Optionally remove the empty mount directories"
+  echo "4. Unmount any containers under /media: umount /media/EV*"
+  echo "5. Remove the empty mount directories: rmdir /media/EV*"
   exit 0
 fi
 
@@ -35,7 +35,7 @@ fi
 function randomdir {
 
   #Create a random mount name to avoid conflicts due to common names of devices
-  cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1 | sed 's?^?LM?'
+  cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 6 | head -n 1 | sed 's?^?EV?'
 }
 
 function checkmount {
@@ -105,12 +105,22 @@ fi
 
 
 # Clean up any past created mount points that aren't in use. rmdir only removes empty dirs
-rmdir /media/LM* >/dev/null 2>&1
+rmdir /media/EV* >/dev/null 2>&1
 
 FILETYPE=`file $file | awk -F: '{ print $2 }' | sed 's?^ ??'`
 echo "Analyzing $file of type: \"$FILETYPE\""
 
-if [ "$FILETYPE" == "ASCII text" ] || [ "$FILETYPE" == "VMware4 disk image" ] || [ "$FILETYPE" == "VMWare3" ]; then 
+if [ -n "`echo $FILETYPE | grep 'Microsoft Disk Image'`" ]; then
+  if [ -z "`which vhdimount`" ]; then
+    echo "ERROR: vhdimount not found. See Readme for details"
+  else
+    vhdmt=/media/`randomdir`
+    mkdir -p $vhdmt
+    echo "Mounting $file as $vhdmt"
+    vhdimount $file $vhdmt > /dev/null 2>/dev/null
+    $0 $vhdmt/vhdi*
+  fi
+elif [ "$FILETYPE" == "ASCII text" ] || [ "$FILETYPE" == "VMware4 disk image" ] || [ "$FILETYPE" == "VMWare3" ]; then 
   VMTYPE=`vmdkinfo $file 2>/dev/null | grep 'Disk type:' | awk -F: '{ print $2 }'`
   if [ -z "$VMTYPE" ]; then
     echo "ERROR: Your VMDK is invalid"
@@ -182,9 +192,17 @@ elif [ "$FILETYPE" == "x86 boot sector" ]; then
 elif [ -n "`echo \"$FILETYPE\" | grep LVM2`" ]; then
   echo "Found partition of type LVM2"
   lvmprocess $file 0
-elif [ -n "`echo "$file" | grep -i e01 2>/dev/null`" ]; then
+elif [ "`echo $FILETYPE | grep 'Linux' | grep ' ext'`" ]; then
+  if [ -z "$mountdir" ]; then
+    mt=/media/`randomdir`
+  else
+    mt=$mountdir/`randomdir`
+  fi
+  mkdir -p $mt
+  echo "Mounting Linux partition $file as $mt"
+  mount -o ro $file $mt
+elif [ -n "`echo $file | grep -i e01 2>/dev/null`" ]; then
   e01mt=/media/`randomdir`
-  cachefile=/tmp/LM`randomdir`
   mkdir -p $e01mt
   echo "Mounting $file as $e01mt to expose raw ewf1 device"
   ewfmount $file $e01mt
