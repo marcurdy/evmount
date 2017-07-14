@@ -86,7 +86,7 @@ HALT=0
 # Check OS prerequisites
 vdiskmgr=`which vmware-vdiskmanager`
 if [ -z "$vdiskmgr" ]; then
-  echo "WARNING: vmware-vdiskmanager is missing. Install VMware-vix-disklib if vmdk is incompat with libvmdk"
+  echo "WARNING: vmware-vdiskmanager is missing. Install VMware-vix-disklib: https://code.vmware.com/web/sdk/60/vddk"
 fi
 
 libvmdk=`which vmdkinfo`
